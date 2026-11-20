@@ -1,0 +1,220 @@
+CREATE DATABASE IF NOT EXISTS shop_man_db
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE shop_man_db;
+
+-- ---------------------------------------------------------------------
+-- 1. Thành viên và các lớp con
+-- ---------------------------------------------------------------------
+CREATE TABLE tblMember8 (
+  id        INT          NOT NULL AUTO_INCREMENT,
+  userName  VARCHAR(255) NOT NULL,
+  password  VARCHAR(255) NOT NULL,
+  fullName  VARCHAR(255) NOT NULL,
+  address   VARCHAR(255) NOT NULL,
+  dob       DATE         NULL,
+  phone     VARCHAR(255) NOT NULL,
+  email     VARCHAR(255) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_member_username (userName)
+) ENGINE=InnoDB;
+
+CREATE TABLE tblCustomer8 (
+  memberId  INT          NOT NULL,
+  custCode  VARCHAR(255) NOT NULL,
+  PRIMARY KEY (memberId),
+  UNIQUE KEY uq_customer_code (custCode),
+  CONSTRAINT fk_customer_member FOREIGN KEY (memberId)
+    REFERENCES tblMember8 (id)
+) ENGINE=InnoDB;
+
+-- position: MANAGER (quản lý), SALE (bán hàng), DELIVER (giao hàng)
+CREATE TABLE tblStaff8 (
+  memberId   INT          NOT NULL,
+  staffCode  VARCHAR(255) NOT NULL,
+  position   VARCHAR(100) NOT NULL,
+  PRIMARY KEY (memberId),
+  UNIQUE KEY uq_staff_code (staffCode),
+  CONSTRAINT chk_staff_position CHECK (position IN ('MANAGER', 'SALE', 'DELIVER')),
+  CONSTRAINT fk_staff_member FOREIGN KEY (memberId)
+    REFERENCES tblMember8 (id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- 2. Loại mặt hàng và mặt hàng
+-- ---------------------------------------------------------------------
+CREATE TABLE tblProductType8 (
+  id        INT          NOT NULL AUTO_INCREMENT,
+  typeName  VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+CREATE TABLE tblProduct8 (
+  id           INT          NOT NULL AUTO_INCREMENT,
+  productCode  VARCHAR(255) NOT NULL,
+  productName  VARCHAR(255) NOT NULL,
+  description  VARCHAR(255) NULL,
+  unit         VARCHAR(255) NOT NULL,
+  price        BIGINT       NOT NULL,
+  image        VARCHAR(255) NOT NULL,
+  inventory    INT          NOT NULL DEFAULT 0,
+  typeId       INT          NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_product_code (productCode),
+  CONSTRAINT chk_product_price     CHECK (price >= 0),
+  CONSTRAINT chk_product_inventory CHECK (inventory >= 0),
+  CONSTRAINT fk_product_type FOREIGN KEY (typeId)
+    REFERENCES tblProductType8 (id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- 3. Đơn hàng, chi tiết đơn hàng, hóa đơn
+-- status (đơn hàng):
+--   PENDING    chờ duyệt (mặc định khi tạo đơn)
+--   APPROVED   đã duyệt
+--   DELIVERING đang giao
+--   DELIVERED  đã giao
+--   CANCELLED  đã hủy / bị từ chối
+-- ---------------------------------------------------------------------
+CREATE TABLE tblOrder8 (
+  id              INT          NOT NULL AUTO_INCREMENT,
+  orderCode       VARCHAR(255) NOT NULL,
+  createdAt       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  total           BIGINT       NOT NULL DEFAULT 0,
+  status          VARCHAR(100) NOT NULL DEFAULT 'PENDING',
+  customerId      INT          NOT NULL,
+  saleStaffId     INT          NULL,
+  deliverStaffId  INT          NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_order_code (orderCode),
+  CONSTRAINT chk_order_status CHECK
+    (status IN ('PENDING', 'APPROVED', 'DELIVERING', 'DELIVERED', 'CANCELLED')),
+  CONSTRAINT fk_order_customer FOREIGN KEY (customerId)
+    REFERENCES tblCustomer8 (memberId),
+  CONSTRAINT fk_order_sale_staff FOREIGN KEY (saleStaffId)
+    REFERENCES tblStaff8 (memberId),
+  CONSTRAINT fk_order_deliver_staff FOREIGN KEY (deliverStaffId)
+    REFERENCES tblStaff8 (memberId)
+) ENGINE=InnoDB;
+
+CREATE TABLE tblOrderDetail8 (
+  id         INT    NOT NULL AUTO_INCREMENT,
+  quantity   INT    NOT NULL,
+  price      BIGINT NOT NULL,
+  orderId    INT    NOT NULL,
+  productId  INT    NOT NULL,
+  PRIMARY KEY (id),
+  -- Tùy chọn: mỗi mặt hàng chỉ một dòng trong một đơn (khi cộng dồn số lượng)
+  -- UNIQUE KEY uq_orderdetail (orderId, productId),
+  CONSTRAINT chk_orderdetail_quantity CHECK (quantity > 0),
+  CONSTRAINT fk_orderdetail_order FOREIGN KEY (orderId)
+    REFERENCES tblOrder8 (id) ON DELETE CASCADE,
+  CONSTRAINT fk_orderdetail_product FOREIGN KEY (productId)
+    REFERENCES tblProduct8 (id)
+) ENGINE=InnoDB;
+
+-- status (hóa đơn):
+--   UNPAID     chưa thanh toán (mặc định khi lập hóa đơn)
+--   PAID       đã thanh toán
+--   CANCELLED  đã hủy (khi đơn hàng bị hủy)
+-- paymentMethod (NULL cho tới khi thanh toán):
+--   CASH           tiền mặt (thanh toán khi nhận hàng)
+--   BANK_TRANSFER  chuyển khoản ngân hàng
+--   E_WALLET       ví điện tử
+CREATE TABLE tblInvoice8 (
+  id             INT          NOT NULL AUTO_INCREMENT,
+  invoiceCode    VARCHAR(255) NOT NULL,
+  createdAt      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  paidAt         TIMESTAMP    NULL DEFAULT NULL,
+  status         VARCHAR(100) NOT NULL DEFAULT 'UNPAID',
+  paymentMethod  VARCHAR(100) NULL,
+  orderId        INT          NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_invoice_code (invoiceCode),
+  UNIQUE KEY uq_invoice_order (orderId),
+  CONSTRAINT chk_invoice_status CHECK
+    (status IN ('UNPAID', 'PAID', 'CANCELLED')),
+  CONSTRAINT chk_invoice_payment CHECK
+    (paymentMethod IS NULL OR paymentMethod IN ('CASH', 'BANK_TRANSFER', 'E_WALLET')),
+  CONSTRAINT fk_invoice_order FOREIGN KEY (orderId)
+    REFERENCES tblOrder8 (id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- 4. Nhà cung cấp, phiếu nhập, chi tiết phiếu nhập
+-- ---------------------------------------------------------------------
+CREATE TABLE tblSupplier8 (
+  id            INT          NOT NULL AUTO_INCREMENT,
+  supplierCode  VARCHAR(255) NOT NULL,
+  supplierName  VARCHAR(255) NOT NULL,
+  address       VARCHAR(255) NOT NULL,
+  email         VARCHAR(255) NOT NULL,
+  phone         VARCHAR(255) NOT NULL,
+  represent     VARCHAR(255) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_supplier_code (supplierCode)
+) ENGINE=InnoDB;
+
+CREATE TABLE tblProductReceipt8 (
+  id           INT          NOT NULL AUTO_INCREMENT,
+  receiptCode  VARCHAR(255) NOT NULL,
+  total        BIGINT       NOT NULL DEFAULT 0,
+  createdAt    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  paidAt       TIMESTAMP    NULL DEFAULT NULL,
+  supplierId   INT          NOT NULL,
+  managerId    INT          NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_receipt_code (receiptCode),
+  CONSTRAINT fk_receipt_supplier FOREIGN KEY (supplierId)
+    REFERENCES tblSupplier8 (id),
+  CONSTRAINT fk_receipt_manager FOREIGN KEY (managerId)
+    REFERENCES tblStaff8 (memberId)
+) ENGINE=InnoDB;
+
+CREATE TABLE tblReceiptDetail8 (
+  id                INT    NOT NULL AUTO_INCREMENT,
+  importPrice       BIGINT NOT NULL,
+  quantity          INT    NOT NULL,
+  productReceiptId  INT    NOT NULL,
+  productId         INT    NOT NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT chk_receiptdetail_quantity CHECK (quantity > 0),
+  CONSTRAINT fk_receiptdetail_receipt FOREIGN KEY (productReceiptId)
+    REFERENCES tblProductReceipt8 (id) ON DELETE CASCADE,
+  CONSTRAINT fk_receiptdetail_product FOREIGN KEY (productId)
+    REFERENCES tblProduct8 (id)
+) ENGINE=InnoDB;
+
+-- =====================================================================
+-- DỮ LIỆU MẪU (để chạy thử hai chức năng Thêm mặt hàng và Đặt hàng)
+-- Lưu ý: mật khẩu mẫu để dạng chữ thường. Nếu ứng dụng băm mật khẩu
+-- thì thay bằng giá trị đã băm.
+-- =====================================================================
+INSERT INTO tblMember8 (id, userName, password, fullName, address, dob, phone, email) VALUES
+  (1, 'manager01',  '123456', 'Nguyễn Văn An', 'Hà Nội', '1990-05-10', '0901000001', 'manager@shopman.vn'),
+  (2, 'sale01',     '123456', 'Lê Thị B',      'Hà Nội', '1995-03-15', '0901000002', NULL),
+  (3, 'deliver01',  '123456', 'Phạm Văn Giao',   'Hà Nội', '1996-07-01', '0901000003', NULL),
+  (4, 'customer01', '123456', 'Trần Thị K',  'Hà Nội', '2000-08-20', '0902000001', NULL);
+
+INSERT INTO tblStaff8 (memberId, staffCode, position) VALUES
+  (1, 'NV001', 'MANAGER'),
+  (2, 'NV002', 'SALE'),
+  (3, 'NV003', 'DELIVER');
+
+INSERT INTO tblCustomer8 (memberId, custCode) VALUES
+  (4, 'KH001');
+
+INSERT INTO tblProductType8 (id, typeName) VALUES
+  (1, 'Đồ uống'),
+  (2, 'Bánh kẹo'),
+  (3, 'Gia vị');
+
+INSERT INTO tblProduct8 (productCode, productName, description, unit, price, image, inventory, typeId) VALUES
+  ('MH001', 'Nước suối 500ml',  'Nước tinh khiết đóng chai', 'chai', 5000,  'images/nuoc-suoi.jpg', 100, 1),
+  ('MH002', 'Sữa tươi 1 lít',   'Sữa tươi tiệt trùng',       'hộp',  32000, 'images/sua-tuoi.jpg',  50,  1),
+  ('MH003', 'Bánh quy bơ',      NULL,                        'gói',  25000, 'images/banh-quy.jpg',  80,  2),
+  ('MH004', 'Nước mắm 500ml',   'Nước mắm truyền thống',     'chai', 45000, 'images/nuoc-mam.jpg',  60,  3);
+
+INSERT INTO tblSupplier8 (supplierCode, supplierName, address, email, phone, represent) VALUES
+  ('NCC001', 'Công ty Thực phẩm An Khang', 'Hà Nội', 'ankhang@example.com', '0243000001', 'Ngô Văn An');
